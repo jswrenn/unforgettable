@@ -36,11 +36,36 @@ fn is_stack_pointer<T: ?Sized>(pointer: *const T) -> bool {
 
 #[test]
 fn test() {
-    use std::pin::pin;
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static WAS_DROPPED: AtomicBool = AtomicBool::new(false);
+    let unforgettable;
 
-    let pinned = pin!(52);
-    assert_eq!(is_unforgettable(pinned.as_ref()), true);
+    struct Foo;
 
-    let pinned = Box::pin(52);
-    assert_eq!(is_unforgettable(pinned.as_ref()), false);
+    impl Drop for Foo {
+        fn drop(&mut self) {
+            WAS_DROPPED.store(true, Ordering::SeqCst);
+        }
+    }
+
+    // edit within the following block...
+    {
+        let data = Foo;
+        let pinned = Pin::new(&data);
+
+        unforgettable = is_unforgettable(pinned);
+
+        let inner = Pin::into_inner(pinned);
+        std::mem::forget(inner);
+    }
+
+    // ...to try to break this assertion:
+    assert!(
+        if unforgettable {
+            WAS_DROPPED.load(Ordering::SeqCst)
+        } else {
+            true
+        },
+        "`unforgettable` implies `WAS_DROPPED`"
+    );
 }
